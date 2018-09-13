@@ -1,0 +1,6 @@
+model_checkpoint_path: "snapshot-12300"
+all_model_checkpoint_paths: "snapshot-12100"
+all_model_checkpoint_paths: "snapshot-12150"
+all_model_checkpoint_paths: "snapshot-12200"
+all_model_checkpoint_paths: "snapshot-12250"
+all_model_checkpoint_paths: "snapshot-12300"
