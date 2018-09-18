@@ -16,4 +16,4 @@ cd ../..
 # cp -r UnaugmentedDataSet_YOURexperimentNameTheDate ../pose-tensorflow/models/
 
 cd ../pose-tensorflow/models/reachingJan30-trainset95shuffle1/train
-python ../../../train.py
+python3 ../../../train.py
