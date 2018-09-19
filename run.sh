@@ -16,4 +16,4 @@
 # cp -r UnaugmentedDataSet_YOURexperimentNameTheDate ../pose-tensorflow/models/
 
 cd pose-tensorflow/models/reachingJan30-trainset95shuffle1/train
-TF_CUDNN_USE_AUTOTUNE=0,1 CUDA_VISIBLE_DEVICES=0,1 python3 ../../../train.py
+TF_CUDNN_USE_AUTOTUNE=0 CUDA_VISIBLE_DEVICES=0,1 python3 ../../../train.py
