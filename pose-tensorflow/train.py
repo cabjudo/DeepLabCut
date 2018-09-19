@@ -74,6 +74,9 @@ def get_optimizer(loss_op, cfg):
 
 
 def train():
+    # for cluster
+    start = time.time()
+    
     setup_logging()
 
     cfg = load_config()
@@ -105,7 +108,13 @@ def train():
     sess.run(tf.local_variables_initializer())
 
     # Restore variables from disk.
-    restorer.restore(sess, cfg.init_weights)
+    ckpt_filename = tf.train.latest_checkpoint('./')
+    if ckpt_filename is None:
+        print("restoring initial weights")
+        restorer.restore(sess, cfg.init_weights)
+    else:
+        print("restore from checkpoint file ", ckpt_dir + '/' + ckpt_filename)
+        restorer.restore(sess, ckpt_filename)
 
     max_iter = int(cfg.multi_step[-1][1])
 
@@ -130,6 +139,12 @@ def train():
         if (it % cfg.save_iters == 0 and it != 0) or it == max_iter:
             model_name = cfg.snapshot_prefix
             saver.save(sess, model_name, global_step=it)
+
+        cur = time.time()
+        if cur - start > 60*55: # if more than 55 minutes
+            model_name = cfg.snapshot_prefix
+            saver.save(sess, model_name, global_step=it)
+            
 
     sess.close()
     coord.request_stop()
