@@ -24,6 +24,6 @@ multi_step:
 net_type: resnet_50
 num_joints: 4
 pos_dist_thresh: 17
-save_iters: 50
+save_iters: 10000
 scale_jitter_lo: 0.5
 scale_jitter_up: 1.5
