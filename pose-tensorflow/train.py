@@ -1,3 +1,4 @@
+import time
 import logging
 import threading
 
@@ -113,7 +114,7 @@ def train():
         print("restoring initial weights")
         restorer.restore(sess, cfg.init_weights)
     else:
-        print("restore from checkpoint file ", ckpt_dir + '/' + ckpt_filename)
+        print("restore from checkpoint file ", ckpt_filename)
         restorer.restore(sess, ckpt_filename)
 
     max_iter = int(cfg.multi_step[-1][1])
