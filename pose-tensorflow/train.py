@@ -63,14 +63,18 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
 def get_optimizer(loss_op, cfg):
     learning_rate = tf.placeholder(tf.float32, shape=[])
 
+    # global_step = tf.Variable(0, name='global_step', trainable=False)
+    # train_op = optimizer.minimize(loss, global_step=global_step)
+    
     if cfg.optimizer == "sgd":
         optimizer = tf.train.MomentumOptimizer(learning_rate=learning_rate, momentum=0.9)
     elif cfg.optimizer == "adam":
         optimizer = tf.train.AdamOptimizer(cfg.adam_lr)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.optimizer))
+    # train_op = slim.learning.create_train_op(loss_op, optimizer, global_step=global_step)
     train_op = slim.learning.create_train_op(loss_op, optimizer)
-
+    
     return learning_rate, train_op
 
 
@@ -123,10 +127,19 @@ def train():
     cum_loss = 0.0
     lr_gen = LearningRate(cfg)
 
-    for it in range(max_iter+1):
+    step_tensor = tf.train.get_global_step()
+    step = tf.train.global_step(sess, step_tensor)
+
+    print("current step: ", step)
+    limits = [ lr_gen.steps[i][1] for i in range(len(lr_gen.steps)) ]
+    idx = sum( [limits[i] < step for i in range(len(limits))] )
+    lr_gen.current_step = max(0, idx-1)
+
+    for it in range(step+1, max_iter+1):
         current_lr = lr_gen.get_lr(it)
-        [_, loss_val, summary] = sess.run([train_op, total_loss, merged_summaries],
+        [_, loss_val, summary, step] = sess.run([train_op, total_loss, merged_summaries, step_tensor],
                                           feed_dict={learning_rate: current_lr})
+        # print("step, it: ", step, it)
         cum_loss += loss_val
         train_writer.add_summary(summary, it)
 
@@ -139,18 +152,107 @@ def train():
         # Save snapshot
         if (it % cfg.save_iters == 0 and it != 0) or it == max_iter:
             model_name = cfg.snapshot_prefix
-            saver.save(sess, model_name, global_step=it)
+            saver.save(sess, model_name, global_step=step_tensor)
 
         cur = time.time()
-        if cur - start > 60*55: # if more than 55 minutes
+        if cur - start > 60: # if more than 55 minutes
+            print("exiting!")
             model_name = cfg.snapshot_prefix
-            saver.save(sess, model_name, global_step=it)
-            
+            print(tf.train.global_step(sess, step_tensor))
+            saver.save(sess, model_name, global_step=step_tensor)
+            break
 
     sess.close()
     coord.request_stop()
     coord.join([thread])
 
 
+def test(config_filename):
+    # # for cluster
+    # start = time.time()
+    
+    # setup_logging()
+
+    # cfg = load_config()
+    # dataset = create_dataset(cfg)
+
+    # batch_spec = get_batch_spec(cfg)
+    # batch, enqueue_op, placeholders = setup_preloading(batch_spec)
+
+    # losses = pose_net(cfg).train(batch)
+    # total_loss = losses['total_loss']
+
+    # for k, t in losses.items():
+    #     tf.summary.scalar(k, t)
+    # merged_summaries = tf.summary.merge_all()
+
+    global_step = tf.train.get_or_create_global_step()
+
+    # variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
+    # restorer = tf.train.Saver()
+    saver = tf.train.Saver(max_to_keep=5)
+
+    ckpt_filename = tf.train.latest_checkpoint('./')
+    # if ckpt_filename is None:
+    #     print("restoring initial weights")
+    #     restorer = tf.train.Saver(variables_to_restore)
+    #     restore_filename = cfg.init_weights
+    # else:
+    #     print("restore from checkpoint file ", ckpt_filename)
+    #     restorer = tf.train.Saver(variables_to_restore.append(global_step))
+    #     restore_filename = ckpt_filename
+    
+
+    # sess = tf.Session()
+
+    # coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
+
+    # train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
+
+    # learning_rate, train_op = get_optimizer(total_loss, cfg)
+
+
+
+    with tf.Session() as sess:
+        if ckpt_filename is not None:
+            print("restore from checkpoint file ", ckpt_filename)
+            saver.restore(sess, ckpt_filename)
+
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        
+        step_ = tf.train.get_global_step()
+        step_val = tf.train.global_step(sess, step_)
+        print("first", step_val)
+        
+        increment_global_step_op = tf.assign(global_step, global_step+1)
+        step = sess.run(increment_global_step_op)
+
+        step_ = tf.train.get_global_step()
+        step_val = tf.train.global_step(sess, step_)
+        print("second", step_val)
+        
+        saver.save(sess, "./testing", global_step=step_)
+        print(step)
+
+
+
+
 if __name__ == '__main__':
-    train()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Load DeepLabCut network')
+
+    parser.add_argument('--config_filename',
+                        default='models/reachingJan30-trainset95shuffle1/train/pose_cfg.yaml',
+                        help='Configuration file location')
+
+    parser.add_argument('--save_path',
+                        default='/tmp/model.ckpt',
+                        help='Save path')
+    
+    # train()
+    args = parser.parse_args()
+    
+    # test(args.config_filename)
+    toy_run(args.save_path)
