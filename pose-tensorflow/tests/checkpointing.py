@@ -1,5 +1,10 @@
+import os
+
 import tensorflow as tf
+import numpy as np
+
 from tensorflow.python.tools import inspect_checkpoint as chkp
+
 
 
 def toy_varsave(save_path):
@@ -64,26 +69,78 @@ def toy_run(save_path):
     print("finished toy_varload")
 
 
-def examine_ckpt(ckpt_filename)
-# print all tensors in checkpoint file
-chkp.print_tensors_in_checkpoint_file("/tmp/model.ckpt", tensor_name='', all_tensors=True)
+def examine_ckpt(ckpt_path, var_name=None):
+    end_matter = len(ckpt_path.split('/')[-1])
+    ckpt_dir = ckpt_path[:-end_matter]
+    print(end_matter, ckpt_dir)
 
-# tensor_name:  v1
-# [ 1.  1.  1.]
-# tensor_name:  v2
-# [-1. -1. -1. -1. -1.]
+    ckpt_file = tf.train.latest_checkpoint(ckpt_dir)
+    if ckpt_file is None:
+        ckpt_file = ckpt_path if os.path.exists(ckpt_path) else ckpt_file
+        
+    # print all tensors in checkpoint file
+    if var_name is None:
+        chkp.print_tensors_in_checkpoint_file(ckpt_file, tensor_name='', all_tensors=True)
+    else:
+        chkp.print_tensors_in_checkpoint_file(ckpt_file, tensor_name=var_name, all_tensors=False)
+    
 
-# print only tensor v1 in checkpoint file
-chkp.print_tensors_in_checkpoint_file("/tmp/model.ckpt", tensor_name='v1', all_tensors=False)
+def generate_linear_data(a, b, ub, lb, num=50, eps=1e-2):
+    '''
+    generate a dataset for line fitting.
 
-# tensor_name:  v1
-# [ 1.  1.  1.]
+    Input:
+    a - scalar value slope
+    b - scalar value offset
+    ub - scalar value upper limit for independent variable x
+    lb - scalar value lower limit for independent variable x
+    eps - scalar value noise
 
-# print only tensor v2 in checkpoint file
-chkp.print_tensors_in_checkpoint_file("/tmp/model.ckpt", tensor_name='v2', all_tensors=False)
+    Output:
+    x - (num, ) independent variable
+    y - (num, ) dependent variable
+    '''
 
-# tensor_name:  v2
-# [-1. -1. -1. -1. -1.]
+    x = np.linspace(lb, ub, num=num)
+    y = a*x + b + np.random.rand(num)*eps
+
+    return x, y
+
+
+def fit_data(x, y, lr, max_iter, print_iter, ckpt_iter, ckpt_path):
+    '''
+    fits (x,y) data with a linear model using gradient descent
+
+    Inputs:
+    x - (num, ) observation
+    y - (num, ) labels
+    '''
+    # variables for slope and offset
+    a = tf.get_variable("a", shape=[1], initializer=tf.ones_initializer())
+    b = tf.get_variable("b", shape=[1], initializer=tf.ones_initializer())
+    
+    y_hat = tf.add( tf.multiply(a, x), b)
+    loss = tf.reduce_sum(tf.square(y - y_hat))
+
+    global_step = tf.Variable(0, trainable=False, name='global_step')
+    train_op = tf.train.AdamOptimizer(lr).minimize(loss, global_step=global_step)
+
+    init = tf.initialize_all_variables()
+
+    saver = tf.train.Saver()
+
+    with tf.Session() as sess:
+        sess.run(init)
+
+        for it in range(max_iter):
+            _, loss_, gs, a_, b_ = sess.run([train_op, loss, global_step, a, b])
+
+            if it % print_iter == 0:
+                print("global_step: {}, loss: {}, slope: {}, offset: {}".format(gs, loss_, a_, b_))
+
+            if it % ckpt_iter == 0:
+                saver.save(sess, ckpt_path, global_step=global_step)
+
 
 
 
@@ -91,11 +148,82 @@ if __name__ == '__main__':
     import argparse
     
     parser = argparse.ArgumentParser(description='Load DeepLabCut network')
-
-    parser.add_argument('--ckpt_fileanme',
+    # checkpoint save path
+    parser.add_argument('--ckpt_filename',
                         default='/tmp/model.ckpt',
                         help='Save path')
+    # learning rate
+    parser.add_argument('--learning_rate',
+                        type=float,
+                        default=1e-3,
+                        help='Learning rate for optimizer')
+
+    # max iterations
+    parser.add_argument('--max_iter',
+                        type=int,
+                        default=1000,
+                        help='Maximum iterations for optimizer')
+
+    # print iteration
+    parser.add_argument('--print_iter',
+                        type=int,
+                        default=100,
+                        help='Print loss every print_iter iterations')
+
+    # checkpoint iteration
+    parser.add_argument('--ckpt_iter',
+                        type=int,
+                        default=500,
+                        help='Save variables every ckpt_iter iterations')
+
+    # data generation
+    # slope
+    parser.add_argument('--slope',
+                        type=float,
+                        default=5,
+                        help='Slope parameter for generated data')
+
+    # offset
+    parser.add_argument('--offset',
+                        type=float,
+                        default=2,
+                        help='Offset parameter for generated data')
+
+    # upper bound
+    parser.add_argument('--upper_bound',
+                        type=float,
+                         default=10,
+                         help='Upper bound for independent parameter')
+
+    # lower bound
+    parser.add_argument('--lower_bound',
+                        type=float,
+                        default=-10,
+                        help='Lower bound for independent paramenter')
+
+    # noise
+    parser.add_argument('--noise',
+                        type=float,
+                        default=1,
+                        help='Noise parameter for data generation')
     
     args = parser.parse_args()
     
-    toy_run(args.ckpt_filename)
+    # toy_run(args.ckpt_filename)
+
+    # x, y = generate_linear_data(a=args.slope,
+    #                             b=args.offset,
+    #                             ub=args.upper_bound,
+    #                             lb=args.lower_bound,
+    #                             eps=args.noise)
+
+    # fit_data(x,
+    #          y,
+    #          lr=args.learning_rate,
+    #          max_iter=args.max_iter,
+    #          print_iter=args.print_iter,
+    #          ckpt_iter=args.ckpt_iter,
+    #          ckpt_path=args.ckpt_filename)
+
+    # examine_ckpt(args.ckpt_filename)
+    examine_ckpt(args.ckpt_filename, var_name='global_step')
