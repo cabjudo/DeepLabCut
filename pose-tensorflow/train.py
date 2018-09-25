@@ -11,6 +11,7 @@ from nnet.net_factory import pose_net
 from nnet.pose_net import get_batch_spec
 from util.logging import setup_logging
 
+from tests.checkpointing import toy_run
 
 class LearningRate(object):
     def __init__(self, cfg):
@@ -63,7 +64,7 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
 def get_optimizer(loss_op, cfg):
     learning_rate = tf.placeholder(tf.float32, shape=[])
 
-    # global_step = tf.Variable(0, name='global_step', trainable=False)
+    global_step = tf.Variable(0, name='global_step', trainable=False)
     # train_op = optimizer.minimize(loss, global_step=global_step)
     
     if cfg.optimizer == "sgd":
@@ -72,8 +73,8 @@ def get_optimizer(loss_op, cfg):
         optimizer = tf.train.AdamOptimizer(cfg.adam_lr)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.optimizer))
-    # train_op = slim.learning.create_train_op(loss_op, optimizer, global_step=global_step)
-    train_op = slim.learning.create_train_op(loss_op, optimizer)
+    train_op = slim.learning.create_train_op(loss_op, optimizer, global_step=global_step)
+    # train_op = slim.learning.create_train_op(loss_op, optimizer)
     
     return learning_rate, train_op
 
@@ -168,31 +169,34 @@ def train():
 
 
 def test(config_filename):
-    # # for cluster
+    # for cluster
     # start = time.time()
     
-    # setup_logging()
+    setup_logging()
 
-    # cfg = load_config()
-    # dataset = create_dataset(cfg)
+    cfg = load_config()
+    dataset = create_dataset(cfg)
 
-    # batch_spec = get_batch_spec(cfg)
-    # batch, enqueue_op, placeholders = setup_preloading(batch_spec)
+    batch_spec = get_batch_spec(cfg)
+    batch, enqueue_op, placeholders = setup_preloading(batch_spec)
 
-    # losses = pose_net(cfg).train(batch)
-    # total_loss = losses['total_loss']
+    losses = pose_net(cfg).train(batch)
+    total_loss = losses['total_loss']
 
-    # for k, t in losses.items():
-    #     tf.summary.scalar(k, t)
-    # merged_summaries = tf.summary.merge_all()
+    for k, t in losses.items():
+        tf.summary.scalar(k, t)
+    merged_summaries = tf.summary.merge_all()
 
-    global_step = tf.train.get_or_create_global_step()
+    variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
+    restorer = tf.train.Saver(variables_to_restore)
 
-    # variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
-    # restorer = tf.train.Saver()
-    saver = tf.train.Saver(max_to_keep=5)
+    learning_rate, train_op = get_optimizer(total_loss, cfg)
 
-    ckpt_filename = tf.train.latest_checkpoint('./')
+    gs = slim.get_variables_by_name("global_step")
+    
+    # saver = tf.train.Saver(max_to_keep=5)
+
+    # ckpt_filename = tf.train.latest_checkpoint('./')
     # if ckpt_filename is None:
     #     print("restoring initial weights")
     #     restorer = tf.train.Saver(variables_to_restore)
@@ -203,37 +207,47 @@ def test(config_filename):
     #     restore_filename = ckpt_filename
     
 
-    # sess = tf.Session()
+    sess = tf.Session()
 
-    # coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
+    coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
 
-    # train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
+    train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
 
-    # learning_rate, train_op = get_optimizer(total_loss, cfg)
+    restorer.restore(sess, cfg.init_weights)
 
+    max_iter = int(cfg.multi_step[-1][1])
 
+    display_iters = cfg.display_iters
+    cum_loss = 0.0
+    lr_gen = LearningRate(cfg)
 
     with tf.Session() as sess:
-        if ckpt_filename is not None:
-            print("restore from checkpoint file ", ckpt_filename)
-            saver.restore(sess, ckpt_filename)
+        # if ckpt_filename is not None:
+        #     print("restore from checkpoint file ", ckpt_filename)
+        #     saver.restore(sess, ckpt_filename)
 
         sess.run(tf.global_variables_initializer())
-        sess.run(tf.local_variables_initializer())
-        
-        step_ = tf.train.get_global_step()
-        step_val = tf.train.global_step(sess, step_)
-        print("first", step_val)
-        
-        increment_global_step_op = tf.assign(global_step, global_step+1)
-        step = sess.run(increment_global_step_op)
 
-        step_ = tf.train.get_global_step()
-        step_val = tf.train.global_step(sess, step_)
-        print("second", step_val)
+        for it in range(max_iter+1):
+            current_lr = lr_gen.get_lr(it)
+            [_, loss_val, summary, gs_] = sess.run([train_op, total_loss, merged_summaries, gs],
+                                                    feed_dict={learning_rate: current_lr})
+            print(gs_)
+        # sess.run(tf.local_variables_initializer())
         
-        saver.save(sess, "./testing", global_step=step_)
-        print(step)
+        # step_ = tf.train.get_global_step()
+        # step_val = tf.train.global_step(sess, step_)
+        # print("first", step_val)
+        
+        # increment_global_step_op = tf.assign(global_step, global_step+1)
+        # step = sess.run(increment_global_step_op)
+
+        # step_ = tf.train.get_global_step()
+        # step_val = tf.train.global_step(sess, step_)
+        # print("second", step_val)
+        
+        # saver.save(sess, "./testing", global_step=step_)
+        # print(step)
 
 
 
@@ -254,5 +268,5 @@ if __name__ == '__main__':
     # train()
     args = parser.parse_args()
     
-    # test(args.config_filename)
-    toy_run(args.save_path)
+    test(args.config_filename)
+
