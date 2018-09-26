@@ -205,15 +205,6 @@ def test(config_filename):
     #     print("restore from checkpoint file ", ckpt_filename)
     #     restorer = tf.train.Saver(variables_to_restore.append(global_step))
     #     restore_filename = ckpt_filename
-    
-
-    sess = tf.Session()
-
-    coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
-
-    train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
-
-    restorer.restore(sess, cfg.init_weights)
 
     max_iter = int(cfg.multi_step[-1][1])
 
@@ -222,32 +213,38 @@ def test(config_filename):
     lr_gen = LearningRate(cfg)
 
     with tf.Session() as sess:
+        print("in session...")
         # if ckpt_filename is not None:
         #     print("restore from checkpoint file ", ckpt_filename)
         #     saver.restore(sess, ckpt_filename)
 
         sess.run(tf.global_variables_initializer())
+        coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
+        train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
+        restorer.restore(sess, cfg.init_weights)
 
+        print("variables initialized...")
         for it in range(max_iter+1):
+            print("in for loop...")
             current_lr = lr_gen.get_lr(it)
             [_, loss_val, summary, gs_] = sess.run([train_op, total_loss, merged_summaries, gs],
                                                     feed_dict={learning_rate: current_lr})
             print(gs_)
-        # sess.run(tf.local_variables_initializer())
+    #     # sess.run(tf.local_variables_initializer())
         
-        # step_ = tf.train.get_global_step()
-        # step_val = tf.train.global_step(sess, step_)
-        # print("first", step_val)
+    #     # step_ = tf.train.get_global_step()
+    #     # step_val = tf.train.global_step(sess, step_)
+    #     # print("first", step_val)
         
-        # increment_global_step_op = tf.assign(global_step, global_step+1)
-        # step = sess.run(increment_global_step_op)
+    #     # increment_global_step_op = tf.assign(global_step, global_step+1)
+    #     # step = sess.run(increment_global_step_op)
 
-        # step_ = tf.train.get_global_step()
-        # step_val = tf.train.global_step(sess, step_)
-        # print("second", step_val)
+    #     # step_ = tf.train.get_global_step()
+    #     # step_val = tf.train.global_step(sess, step_)
+    #     # print("second", step_val)
         
-        # saver.save(sess, "./testing", global_step=step_)
-        # print(step)
+    #     # saver.save(sess, "./testing", global_step=step_)
+    #     # print(step)
 
 
 
@@ -262,7 +259,7 @@ if __name__ == '__main__':
                         help='Configuration file location')
 
     parser.add_argument('--save_path',
-                        default='/tmp/model.ckpt',
+                        default='~/tmp/model.ckpt',
                         help='Save path')
     
     # train()
