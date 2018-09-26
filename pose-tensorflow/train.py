@@ -168,9 +168,9 @@ def train():
     coord.join([thread])
 
 
-def test(config_filename):
+def test(config_filename, save_path):
     # for cluster
-    # start = time.time()
+    start = time.time()
     
     setup_logging()
 
@@ -188,23 +188,22 @@ def test(config_filename):
     merged_summaries = tf.summary.merge_all()
 
     variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
-    restorer = tf.train.Saver(variables_to_restore)
 
     learning_rate, train_op = get_optimizer(total_loss, cfg)
 
-    gs = slim.get_variables_by_name("global_step")
-    
-    # saver = tf.train.Saver(max_to_keep=5)
+    gs = slim.get_variables_by_name("global_step")[0]
 
-    # ckpt_filename = tf.train.latest_checkpoint('./')
-    # if ckpt_filename is None:
-    #     print("restoring initial weights")
-    #     restorer = tf.train.Saver(variables_to_restore)
-    #     restore_filename = cfg.init_weights
-    # else:
-    #     print("restore from checkpoint file ", ckpt_filename)
-    #     restorer = tf.train.Saver(variables_to_restore.append(global_step))
-    #     restore_filename = ckpt_filename
+    saver = tf.train.Saver(max_to_keep=5)
+
+    ckpt_filename = tf.train.latest_checkpoint(save_path)
+    if ckpt_filename is None:
+        print("restoring initial weights")
+        restorer = tf.train.Saver(variables_to_restore)
+        restore_filename = cfg.init_weights
+    else:
+        print("restore from checkpoint file ", ckpt_filename)
+        restorer = tf.train.Saver(variables_to_restore.append(gs))
+        restore_filename = ckpt_filename
 
     max_iter = int(cfg.multi_step[-1][1])
 
@@ -214,38 +213,58 @@ def test(config_filename):
 
     with tf.Session() as sess:
         print("in session...")
-        # if ckpt_filename is not None:
-        #     print("restore from checkpoint file ", ckpt_filename)
-        #     saver.restore(sess, ckpt_filename)
 
         sess.run(tf.global_variables_initializer())
+        print("variables initialized...")
+
         coord, thread = start_preloading(sess, enqueue_op, dataset, placeholders)
         train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
-        restorer.restore(sess, cfg.init_weights)
 
-        print("variables initialized...")
-        for it in range(max_iter+1):
-            print("in for loop...")
+        restorer.restore(sess, restore_filename)
+        print("variables restored...")
+
+        step = tf.train.global_step(sess, gs)
+        print("current step: ", step)
+        
+        limits = [ lr_gen.steps[i][1] for i in range(len(lr_gen.steps)) ]
+        idx = sum( [limits[i] < step for i in range(len(limits))] )
+        lr_gen.current_step = max(0, idx-1)
+        print("current lr: ", lr_gen.get_lr(step))
+        
+        for it in range(step, max_iter+1):
             current_lr = lr_gen.get_lr(it)
             [_, loss_val, summary, gs_] = sess.run([train_op, total_loss, merged_summaries, gs],
                                                     feed_dict={learning_rate: current_lr})
-            print(gs_)
-    #     # sess.run(tf.local_variables_initializer())
-        
-    #     # step_ = tf.train.get_global_step()
-    #     # step_val = tf.train.global_step(sess, step_)
-    #     # print("first", step_val)
-        
-    #     # increment_global_step_op = tf.assign(global_step, global_step+1)
-    #     # step = sess.run(increment_global_step_op)
 
-    #     # step_ = tf.train.get_global_step()
-    #     # step_val = tf.train.global_step(sess, step_)
-    #     # print("second", step_val)
-        
-    #     # saver.save(sess, "./testing", global_step=step_)
-    #     # print(step)
+            cum_loss += loss_val
+            train_writer.add_summary(summary, it)
 
+            if it % display_iters == 0:
+                average_loss = cum_loss / display_iters
+                cum_loss = 0.0
+                logging.info("iteration: {} loss: {} lr: {}"
+                             .format(it, "{0:.4f}".format(average_loss), current_lr))
+
+            # Save snapshot
+            if (it % cfg.save_iters == 0 and it != 0) or it == max_iter:
+                model_name = cfg.snapshot_prefix
+                saver.save(sess, model_name, global_step=gs)
+
+            cur = time.time()
+            if cur - start > 50: # if more than 55 minutes
+                print("exiting!")
+                model_name = cfg.snapshot_prefix
+                print("current global step: ", tf.train.global_step(sess, step_tensor))
+                saver.save(sess, model_name, global_step=gs)
+                return
+
+
+
+            # if it % 10 == 0:
+            #     print("saving...")
+            #     saver.save(sess, save_path + 'testing', global_step=gs)
+            #     return
+                
 
 
 
@@ -259,11 +278,11 @@ if __name__ == '__main__':
                         help='Configuration file location')
 
     parser.add_argument('--save_path',
-                        default='~/tmp/model.ckpt',
+                        default='./',
                         help='Save path')
     
     # train()
     args = parser.parse_args()
     
-    test(args.config_filename)
+    test(args.config_filename, args.save_path)
 
